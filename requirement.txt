@@ -1,1 +1,6 @@
+streamlit
+langchain
+google-generativeai
+requests
+yfinance
 
