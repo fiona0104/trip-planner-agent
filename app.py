@@ -1,102 +1,83 @@
 import streamlit as st
 import requests
 import os
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.agents import initialize_agent, Tool
+import google.generativeai as genai
 
-# -------------------------------
-# SET PAGE CONFIG
-# -------------------------------
+# ------------------------
+# PAGE CONFIG
+# ------------------------
 st.set_page_config(page_title="AI Trip Planner", page_icon="🌍")
 st.title("🌍 AI Trip Planner Agent")
-st.write("Plan your trip with real-time weather + AI itinerary")
 
-# -------------------------------
-# LOAD API KEYS FROM SECRETS
-# -------------------------------
+# ------------------------
+# LOAD API KEYS
+# ------------------------
 OPENWEATHER_KEY = os.getenv("OPENWEATHER_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 if not GOOGLE_API_KEY:
-    st.error("Missing GOOGLE_API_KEY in Streamlit Secrets.")
+    st.error("Missing GOOGLE_API_KEY in Secrets.")
     st.stop()
 
-# -------------------------------
-# WEATHER TOOL FUNCTION
-# -------------------------------
-def get_weather(city: str):
-    try:
-        url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={OPENWEATHER_KEY}&units=metric"
-        response = requests.get(url)
-        data = response.json()
+genai.configure(api_key=GOOGLE_API_KEY)
+model = genai.GenerativeModel("gemini-pro")
 
-        if "main" in data:
-            temp = data["main"]["temp"]
-            desc = data["weather"][0]["description"]
-            humidity = data["main"]["humidity"]
+# ------------------------
+# WEATHER FUNCTION
+# ------------------------
+def get_weather(city):
+    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={OPENWEATHER_KEY}&units=metric"
+    response = requests.get(url)
+    data = response.json()
 
-            return f"""
-            Current Weather in {city}:
-            Temperature: {temp}°C
-            Condition: {desc}
-            Humidity: {humidity}%
-            """
-        else:
-            return "Weather data not found."
-    except:
-        return "Error fetching weather data."
+    if "main" in data:
+        return f"""
+Current Weather in {city}:
+Temperature: {data['main']['temp']}°C
+Condition: {data['weather'][0]['description']}
+Humidity: {data['main']['humidity']}%
+"""
+    else:
+        return "Weather data not found."
 
-
-# -------------------------------
-# INITIALIZE LLM
-# -------------------------------
-os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
-
-llm = ChatGoogleGenerativeAI(
-    model="gemini-pro",
-    temperature=0.7
-)
-
-# -------------------------------
-# DEFINE TOOLS
-# -------------------------------
-tools = [
-    Tool(
-        name="Weather Tool",
-        func=get_weather,
-        description="Use this tool to get current weather information of a city."
-    )
-]
-
-# -------------------------------
-# CREATE AGENT
-# -------------------------------
-agent = initialize_agent(
-    tools,
-    llm,
-    agent="zero-shot-react-description",
-    verbose=True
-)
-
-# -------------------------------
+# ------------------------
 # USER INPUT
-# -------------------------------
+# ------------------------
 user_input = st.text_input(
     "Enter your request (Example: Plan a 3-day trip to Tokyo in May)"
 )
 
-# -------------------------------
-# RUN AGENT
-# -------------------------------
 if st.button("Plan Trip"):
     if user_input:
         with st.spinner("Planning your trip..."):
-            try:
-                result = agent.run(user_input)
-                st.success("Trip Plan Generated Successfully!")
-                st.write(result)
-            except Exception as e:
-                st.error(f"Error: {e}")
+
+            # Extract city name (simple logic)
+            words = user_input.split()
+            city = words[-3] if "to" in words else words[-1]
+
+            weather_info = get_weather(city)
+
+            prompt = f"""
+You are a travel planner.
+
+User Request:
+{user_input}
+
+Include:
+1. 1 paragraph about cultural & historical significance
+2. Travel dates suggestion
+3. 3-day itinerary
+4. Flight suggestion (example)
+5. Hotel suggestion (example)
+6. Include this real weather info:
+
+{weather_info}
+"""
+
+            response = model.generate_content(prompt)
+
+            st.success("Trip Plan Generated!")
+            st.write(response.text)
+
     else:
         st.warning("Please enter a trip request.")
-
